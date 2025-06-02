@@ -1,0 +1,40 @@
+version: "3.8"
+
+services:
+  auth-service:
+    build: ./auth-service
+    container_name: auth-service
+    env_file: ./auth-service/.env
+    ports:
+      - "8001:8000"
+    restart: unless-stopped
+
+  placa-service:
+    build: ./placa-service
+    container_name: placa-service
+    env_file: ./placa-service/.env
+    ports:
+      - "8002:8000"
+    restart: unless-stopped
+
+  fiscalizacao-service:
+    build: ./fiscalizacao-service
+    container_name: fiscalizacao-service
+    env_file: ./fiscalizacao-service/.env
+    ports:
+      - "8003:8000"
+    restart: unless-stopped
+
+  consumidor-irregularidade:
+    build: ./consumidor-irregularidade
+    container_name: consumidor-irregularidade
+    env_file: ./consumidor-irregularidade/.env
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    restart: unless-stopped
