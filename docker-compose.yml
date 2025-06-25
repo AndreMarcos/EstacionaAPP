@@ -1,12 +1,29 @@
 version: "3.8"
 
 services:
+
   auth-service:
     build: ./auth-service
     container_name: auth-service
     env_file: ./auth-service/.env
     ports:
       - "8001:8000"
+    restart: unless-stopped
+
+  veiculo-service:
+    build: ./veiculos-service
+    container_name: veiculos-service
+    env_file: ./veiculos-service/.env
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  creditos-service:
+    build: ./creditos-service
+    container_name: creditos-service
+    env_file: ./creditos-service/.env
+    ports:
+      - "8004:8000"
     restart: unless-stopped
 
   placa-service:
@@ -25,6 +42,22 @@ services:
       - "8003:8000"
     restart: unless-stopped
 
+  pagamento-service:
+    build: ./pagamento-service
+    container_name: pagamento-service
+    env_file: ./pagamento-service/.env
+    ports:
+      - "8006:8000"
+    restart: unless-stopped
+
+  notificacao-service:
+    build: ./notificacao-service
+    container_name: notificacao-service
+    env_file: ./notificacao-service/.env
+    ports:
+      - "8005:8000"
+    restart: unless-stopped
+
   consumidor-irregularidade:
     build: ./consumidor-irregularidade
     container_name: consumidor-irregularidade
@@ -32,9 +65,17 @@ services:
     restart: unless-stopped
 
   rabbitmq:
-    image: rabbitmq:3-management
-    container_name: rabbitmq
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    restart: unless-stopped
+      image: rabbitmq:3-management
+      container_name: rabbitmq
+      ports:
+        - "5672:5672"
+        - "15672:15672"
+      environment:
+        RABBITMQ_DEFAULT_USER: myuser
+        RABBITMQ_DEFAULT_PASS: mypassword
+      volumes:
+        - rabbitmq-data:/var/lib/rabbitmq
+      # command: ["sh", "/docker-entrypoint-init.d/rabbitmq-setup.sh"]
+
+volumes:
+  rabbitmq-data:

@@ -1,11 +1,4 @@
-from fastapi import FastAPI
-from app.fiscal import router as fiscal_router
-from app.rabbitmq import init_rabbitmq
+from fiscalizacao_consumer import start_consuming
 
-app = FastAPI()
-
-@app.on_event("startup")
-async def startup():
-    await init_rabbitmq()
-
-app.include_router(fiscal_router, prefix="/fiscal")
+if __name__ == '__main__':
+    start_consuming()
