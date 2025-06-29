@@ -20,6 +20,11 @@ channel = connection.channel()
 
 # Declaração de fila
 channel.queue_declare(queue="queue_fiscalizacao", durable=True)
+channel.queue_bind(
+    exchange='amq.topic',
+    queue='queue_fiscalizacao',
+    routing_key='queue_fiscalizacao'
+)
 
 # Lógica de negócio: verifica créditos válidos e irregularidades
 def check_plate(req):
@@ -32,15 +37,19 @@ def check_plate(req):
         .gte("expira_em", now)\
         .execute().data
 
-    irregs = supabase.table("irregularidades")\
-        .select("*")\
-        .eq("placa", placa)\
-        .execute().data
+    # irregs = supabase.table("irregularidades")\
+    #     .select("*")\
+    #     .eq("placa", placa)\
+    #     .execute().data
 
-    if irregs:
-        return {"regular": False, "motivo": irregs[0]["motivo"]}
+    # if irregs:
+    #     print("🔍 Irregular")
+    #     return {"regular": False, "motivo": irregs[0]["motivo"]}
     if not credits:
+        print("🔍 Irregular")
         return {"regular": False, "motivo": "sem crédito"}
+    
+    print("🔍 Regular")
     return {"regular": True}
 
 # Callback de consulta de placa
@@ -49,7 +58,11 @@ def on_query(ch, method, properties, body):
     corr_id = properties.correlation_id or req.get("correlation_id")
     print(f"Consultando placa={req.get('placa')}")
 
-    result = check_plate(req)
+    try:
+        result = check_plate(req)
+    except Exception as e:
+        print(f"🔍 ERROR: {str(e)}")
+        result = {"error": str(e)}
 
     # Responde na fila informada em reply_to
     channel.basic_publish(
