@@ -10,7 +10,7 @@ services:
       - "8001:8000"
     restart: unless-stopped
 
-  veiculo-service:
+  veiculos-service:
     build: ./veiculos-service
     container_name: veiculos-service
     env_file:
@@ -28,16 +28,6 @@ services:
       - ./creditos-service/.env
     ports:
       - "8004:8000"
-    restart: unless-stopped
-
-  placa-service:
-    build: ./placa-service
-    container_name: placa-service
-    env_file:
-      - .env
-      - ./placa-service/.env
-    ports:
-      - "8002:8000"
     restart: unless-stopped
 
   fiscalizacao-service:
