@@ -1,1 +1,10 @@
 /app-motorista
+
+.vscode
+.idea/
+
+.env
+.env.*
+*.env
+
+.DS_Store

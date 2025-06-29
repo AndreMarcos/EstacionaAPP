@@ -1,11 +1,11 @@
-version: "3.8"
-
 services:
 
   auth-service:
     build: ./auth-service
     container_name: auth-service
-    env_file: ./auth-service/.env
+    env_file:
+      - .env
+      - ./auth-service/.env
     ports:
       - "8001:8000"
     restart: unless-stopped
@@ -13,7 +13,9 @@ services:
   veiculo-service:
     build: ./veiculos-service
     container_name: veiculos-service
-    env_file: ./veiculos-service/.env
+    env_file:
+      - .env
+      - ./veiculos-service/.env
     ports:
       - "8000:8000"
     restart: unless-stopped
@@ -21,7 +23,9 @@ services:
   creditos-service:
     build: ./creditos-service
     container_name: creditos-service
-    env_file: ./creditos-service/.env
+    env_file:
+      - .env
+      - ./creditos-service/.env
     ports:
       - "8004:8000"
     restart: unless-stopped
@@ -29,7 +33,9 @@ services:
   placa-service:
     build: ./placa-service
     container_name: placa-service
-    env_file: ./placa-service/.env
+    env_file:
+      - .env
+      - ./placa-service/.env
     ports:
       - "8002:8000"
     restart: unless-stopped
@@ -37,7 +43,9 @@ services:
   fiscalizacao-service:
     build: ./fiscalizacao-service
     container_name: fiscalizacao-service
-    env_file: ./fiscalizacao-service/.env
+    env_file:
+      - .env
+      - ./fiscalizacao-service/.env
     ports:
       - "8003:8000"
     restart: unless-stopped
@@ -45,23 +53,19 @@ services:
   pagamento-service:
     build: ./pagamento-service
     container_name: pagamento-service
-    env_file: ./pagamento-service/.env
+    env_file:
+      - .env
+      - ./pagamento-service/.env
     ports:
       - "8006:8000"
-    restart: unless-stopped
-
-  notificacao-service:
-    build: ./notificacao-service
-    container_name: notificacao-service
-    env_file: ./notificacao-service/.env
-    ports:
-      - "8005:8000"
     restart: unless-stopped
 
   consumidor-irregularidade:
     build: ./consumidor-irregularidade
     container_name: consumidor-irregularidade
-    env_file: ./consumidor-irregularidade/.env
+    env_file:
+      - .env
+      - ./consumidor-irregularidades/.env
     restart: unless-stopped
 
   rabbitmq:
@@ -70,9 +74,8 @@ services:
       ports:
         - "5672:5672"
         - "15672:15672"
-      environment:
-        RABBITMQ_DEFAULT_USER: myuser
-        RABBITMQ_DEFAULT_PASS: mypassword
+      env_file:
+        - path: .env
       volumes:
         - rabbitmq-data:/var/lib/rabbitmq
       # command: ["sh", "/docker-entrypoint-init.d/rabbitmq-setup.sh"]
