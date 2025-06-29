@@ -1,8 +1,31 @@
 services:
 
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "1883:1883"
+      - "5672:5672"
+      - "15672:15672"
+    env_file:
+      - path: .env
+    volumes:
+      - ./rabbitmq-data:/var/lib/rabbitmq
+      - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins
+    # command: ["sh", "/docker-entrypoint-init.d/rabbitmq-setup.sh"]
+    healthcheck:
+      test: rabbitmq-diagnostics check_port_connectivity
+      interval: 10s
+      timeout: 30s
+      retries: 3
+
   auth-service:
     build: ./auth-service
     container_name: auth-service
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+        restart: true
     env_file:
       - .env
       - ./auth-service/.env
@@ -13,6 +36,10 @@ services:
   veiculos-service:
     build: ./veiculos-service
     container_name: veiculos-service
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+        restart: true
     env_file:
       - .env
       - ./veiculos-service/.env
@@ -20,9 +47,27 @@ services:
       - "8000:8000"
     restart: unless-stopped
 
+  pagamento-service:
+    build: ./pagamento-service
+    container_name: pagamento-service
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+        restart: true
+    env_file:
+      - .env
+      - ./pagamento-service/.env
+    ports:
+      - "8006:8000"
+    restart: unless-stopped
+
   creditos-service:
     build: ./creditos-service
     container_name: creditos-service
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+        restart: true
     env_file:
       - .env
       - ./creditos-service/.env
@@ -33,6 +78,10 @@ services:
   fiscalizacao-service:
     build: ./fiscalizacao-service
     container_name: fiscalizacao-service
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+        restart: true
     env_file:
       - .env
       - ./fiscalizacao-service/.env
@@ -40,35 +89,13 @@ services:
       - "8003:8000"
     restart: unless-stopped
 
-  pagamento-service:
-    build: ./pagamento-service
-    container_name: pagamento-service
-    env_file:
-      - .env
-      - ./pagamento-service/.env
-    ports:
-      - "8006:8000"
-    restart: unless-stopped
-
-  consumidor-irregularidade:
-    build: ./consumidor-irregularidade
-    container_name: consumidor-irregularidade
-    env_file:
-      - .env
-      - ./consumidor-irregularidades/.env
-    restart: unless-stopped
-
-  rabbitmq:
-      image: rabbitmq:3-management
-      container_name: rabbitmq
-      ports:
-        - "5672:5672"
-        - "15672:15672"
-      env_file:
-        - path: .env
-      volumes:
-        - rabbitmq-data:/var/lib/rabbitmq
-      # command: ["sh", "/docker-entrypoint-init.d/rabbitmq-setup.sh"]
+  # consumidor-irregularidade:
+  #   build: ./consumidor-irregularidade
+  #   container_name: consumidor-irregularidade
+  #   env_file:
+  #     - .env
+  #     - ./consumidor-irregularidades/.env
+  #   restart: unless-stopped
 
 volumes:
   rabbitmq-data:
