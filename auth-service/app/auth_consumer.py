@@ -70,6 +70,6 @@ def start_consuming():
     channel.basic_consume(queue="auth_signup", on_message_callback=on_signup)
     channel.basic_consume(queue="auth_login", on_message_callback=on_login)
 
-    print("Consumidor autenticacao rodando. Aguardando mensagens...")
+    print("👤 Auth Service rodando. Aguardando mensagens...")
     channel.start_consuming()
     
