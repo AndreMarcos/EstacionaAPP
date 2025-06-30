@@ -41,20 +41,24 @@ def send_event(routing_key, payload, correlation_id):
 
 # Callback para pedidos de pagamento
 def on_payment_request(ch, method, properties, body):
-    req     = json.loads(body)
-    corr_id = req.get("correlation_id")
-    print(f"🛠 Processando pagamento para order_id={req.get('order_id')}")
+    req         = json.loads(body)
+    reply_topic = req.get('reply_to').replace('/', '.')
+    corr_id     = req.get("correlation_id")
+    
+    print(f"🛠 Processando pagamento para 'order_id={req.get('order_id')}'")
 
     # --- Aqui você integraria com o gateway de pagamento real ---
     event = {
         "order_id": req.get("order_id"),
         "status":   "Success"
     }
+    
+    event['correlation_id'] = corr_id
 
     # 1) Responde ao cliente
     channel.basic_publish(
-        exchange='',
-        routing_key=req.get("reply_to"),
+        exchange='amq.topic',
+        routing_key=reply_topic,
         properties=pika.BasicProperties(correlation_id=corr_id),
         body=json.dumps(event)
     )

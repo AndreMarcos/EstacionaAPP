@@ -37,41 +37,37 @@ def check_plate(req):
         .gte("expira_em", now)\
         .execute().data
 
-    # irregs = supabase.table("irregularidades")\
-    #     .select("*")\
-    #     .eq("placa", placa)\
-    #     .execute().data
-
-    # if irregs:
-    #     print("🔍 Irregular")
-    #     return {"regular": False, "motivo": irregs[0]["motivo"]}
     if not credits:
         print("🔍 Irregular")
-        return {"regular": False, "motivo": "sem crédito"}
+        return {"status": False, "mensagem": "No credit"}
     
     print("🔍 Regular")
-    return {"regular": True}
+    return {"status": True}
 
 # Callback de consulta de placa
 def on_query(ch, method, properties, body):
-    req     = json.loads(body)
-    corr_id = properties.correlation_id or req.get("correlation_id")
-    print(f"Consultando placa={req.get('placa')}")
-
     try:
+        req         = json.loads(body)
+        reply_topic = req.get('reply_to').replace('/', '.')
+        corr_id     = properties.correlation_id or req.get("correlation_id")
+        
+        print(f"🔍 Consultando placa={req.get('placa')}")
+
         result = check_plate(req)
+        result['correlation_id'] = corr_id
+        
+        print(f" [x] Respondendo na fila '{reply_topic}'")
+        channel.basic_publish(
+            exchange='amq.topic',
+            routing_key=reply_topic,
+            properties=pika.BasicProperties(correlation_id=corr_id),
+            body=json.dumps(result)
+        )
+        print(f" [✔] Resposta enviada para o tópico '{reply_topic}'")
     except Exception as e:
         print(f"🔍 ERROR: {str(e)}")
-        result = {"error": str(e)}
-
-    # Responde na fila informada em reply_to
-    channel.basic_publish(
-        exchange='',
-        routing_key=req.get("reply_to"),
-        properties=pika.BasicProperties(correlation_id=corr_id),
-        body=json.dumps(result)
-    )
-    ch.basic_ack(delivery_tag=method.delivery_tag)
+    finally:    
+        ch.basic_ack(delivery_tag=method.delivery_tag)
 
 # Loop de consumo
 channel.basic_consume(queue="queue_fiscalizacao", on_message_callback=on_query)
