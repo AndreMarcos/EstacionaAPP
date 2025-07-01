@@ -2,6 +2,7 @@ import os
 import json
 import pika
 from dotenv import load_dotenv
+from supabase_client import supabase
 
 load_dotenv()
 
@@ -27,15 +28,12 @@ channel.queue_bind(
     routing_key='queue_pagamento'
 )
 
-# Publica eventos ou respostas mantendo o correlation_id
+# Publica eventos
 def send_event(routing_key, payload, correlation_id):
     channel.basic_publish(
         exchange='',
         routing_key=routing_key,
-        properties=pika.BasicProperties(
-            delivery_mode=2,
-            correlation_id=correlation_id
-        ),
+        properties=pika.BasicProperties(delivery_mode=2, correlation_id=correlation_id),
         body=json.dumps(payload)
     )
 
@@ -44,36 +42,56 @@ def on_payment_request(ch, method, properties, body):
     req         = json.loads(body)
     reply_topic = req.get('reply_to').replace('/', '.')
     corr_id     = req.get("correlation_id")
+    placa       = req.get("placa").replace('-', '')
     
-    print(f"🛠 Processando pagamento para 'order_id={req.get('order_id')}'")
+    print(f"🛠️ Processando pagamento para placa {req.get('placa')}")
 
-    # --- Aqui você integraria com o gateway de pagamento real ---
-    event = {
-        "order_id": req.get("order_id"),
-        "status":   "Success"
-    }
-    
-    event['correlation_id'] = corr_id
+    try:
+        horas = req.get("duracao_horas", 1)
+        valor_por_hora = 5.00
+        
+        pagamento_record = {
+            "placa": placa,
+            "duracao_horas": horas,
+            "valor": horas * valor_por_hora,
+        }
+        
+        # --- LÓGICA PRINCIPAL ---
+        # 1. Insere o pagamento e recupera o registro inserido
+        res = supabase.table("pagamentos").insert(pagamento_record).execute()
+        
+        # O registro recém-criado está em res.data[0]
+        pagamento_criado = res.data[0]
+        order_id_gerado = pagamento_criado['order_id']
+        
+        print(f"🛠️ Pagamento registrado com sucesso. Order ID: {order_id_gerado}")
+        
+        # 2. Responde ao cliente com o status
+        response_event = { "order_id": order_id_gerado, "status": "Success", "correlation_id": corr_id }
+        channel.basic_publish(
+            exchange='amq.topic',
+            routing_key=reply_topic,
+            properties=pika.BasicProperties(correlation_id=corr_id),
+            body=json.dumps(response_event)
+        )
+        
+        # 3. Dispara evento para o Serviço de Crédito com o order_id gerado
+        credit_event = {
+            "order_id": order_id_gerado, # <-- USA O ID GERADO PELO BANCO
+            "placa": placa,
+            "zona":  req.get("zona"),
+            "duracao_horas": req.get("duracao_horas"),
+            "correlation_id": corr_id
+        }
+        send_event("queue_credito", credit_event, corr_id)
 
-    # 1) Responde ao cliente
-    channel.basic_publish(
-        exchange='amq.topic',
-        routing_key=reply_topic,
-        properties=pika.BasicProperties(correlation_id=corr_id),
-        body=json.dumps(event)
-    )
-    # 2) Dispara evento para o Serviço de Crédito
-    credit_event = {
-        **event,
-        "placa": req.get("placa"),
-        "zona":  req.get("zona"),
-        "duracao_horas": req.get("duracao_horas"),
-    }
-    send_event("queue_credito", credit_event, corr_id)
+    except Exception as e:
+        print(f"🛠️ ERRO no processamento de pagamento: {e}")
 
-    ch.basic_ack(delivery_tag=method.delivery_tag)
+    finally:
+        ch.basic_ack(delivery_tag=method.delivery_tag)
 
 # Loop de consumo
 channel.basic_consume(queue="queue_pagamento", on_message_callback=on_payment_request)
-print("🛠 Serviço de Pagamento rodando. Aguardando mensagens em queue_pagamento...")
+print("🛠️ Serviço de Pagamento rodando. Aguardando mensagens...")
 channel.start_consuming()

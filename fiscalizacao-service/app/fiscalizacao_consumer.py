@@ -3,7 +3,7 @@ import json
 import pika
 from supabase_client import supabase
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timezone
 
 load_dotenv()
 
@@ -18,7 +18,7 @@ connection  = pika.BlockingConnection(
 )
 channel = connection.channel()
 
-# Declaração de fila
+# Declaração da fila de fiscalização
 channel.queue_declare(queue="queue_fiscalizacao", durable=True)
 channel.queue_bind(
     exchange='amq.topic',
@@ -26,29 +26,38 @@ channel.queue_bind(
     routing_key='queue_fiscalizacao'
 )
 
-# Lógica de negócio: verifica créditos válidos e irregularidades
+# Lógica de negócio: verifica créditos válidos
 def check_plate(req):
     placa = req.get("placa")
-    now   = datetime.utcnow().isoformat()
+    now   = datetime.now(timezone.utc).isoformat()
 
-    credits = supabase.table("creditos")\
-        .select("*")\
-        .eq("placa", placa)\
-        .gte("expira_em", now)\
-        .execute().data
+    try:
+        credits = supabase.table("creditos")\
+            .select("*")\
+            .eq("placa", placa)\
+            .gte("expira_em", now)\
+            .execute().data
+    except Exception as e:
+        print(f"🔍 ERRO ao consultar Supabase: {e}")
+        return {"status": False, "mensagem": "Erro interno ao consultar crédito."}
 
     if not credits:
-        print("🔍 Irregular")
-        return {"status": False, "mensagem": "No credit"}
+        # --- VEÍCULO IRREGULAR ---
+        # Apenas prepara uma resposta informando a irregularidade.
+        print(f"🔍 Veículo {placa} irregular.")
+        return {
+            "status": False,
+            "mensagem": "Veículo irregular: Sem crédito ativo."
+        }
     
-    print("🔍 Regular")
-    return {"status": True}
+    print(f"🔍 Veículo {placa} está regular.")
+    return {"status": True, "mensagem": "Veículo regular."}
 
 # Callback de consulta de placa
 def on_query(ch, method, properties, body):
     try:
         req         = json.loads(body)
-        reply_topic = req.get('reply_to').replace('/', '.')
+        reply_to    = req.get('reply_to').replace('/', '.')
         corr_id     = properties.correlation_id or req.get("correlation_id")
         
         print(f"🔍 Consultando placa={req.get('placa')}")
@@ -56,16 +65,17 @@ def on_query(ch, method, properties, body):
         result = check_plate(req)
         result['correlation_id'] = corr_id
         
-        print(f" [x] Respondendo na fila '{reply_topic}'")
-        channel.basic_publish(
-            exchange='amq.topic',
-            routing_key=reply_topic,
-            properties=pika.BasicProperties(correlation_id=corr_id),
-            body=json.dumps(result)
-        )
-        print(f" [✔] Resposta enviada para o tópico '{reply_topic}'")
+        # Responde ao solicitante original (App do Agente)
+        if reply_to:
+            print(f"🔍 Respondendo na fila '{reply_to}'")
+            channel.basic_publish(
+                exchange='amq.topic',
+                routing_key=reply_to,
+                properties=pika.BasicProperties(correlation_id=corr_id),
+                body=json.dumps(result)
+            )
     except Exception as e:
-        print(f"🔍 ERROR: {str(e)}")
+        print(f"🔍 ERRO GERAL: {str(e)}")
     finally:    
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
