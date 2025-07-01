@@ -30,7 +30,7 @@ services:
       - .env
       - ./auth-service/.env
     ports:
-      - "8001:8000"
+      - "8000:8000"
     restart: unless-stopped
 
   veiculos-service:
@@ -44,7 +44,7 @@ services:
       - .env
       - ./veiculos-service/.env
     ports:
-      - "8000:8000"
+      - "8001:8000"
     restart: unless-stopped
 
   pagamento-service:
@@ -58,7 +58,7 @@ services:
       - .env
       - ./pagamento-service/.env
     ports:
-      - "8006:8000"
+      - "8002:8000"
     restart: unless-stopped
 
   creditos-service:
@@ -72,7 +72,7 @@ services:
       - .env
       - ./creditos-service/.env
     ports:
-      - "8004:8000"
+      - "8003:8000"
     restart: unless-stopped
 
   fiscalizacao-service:
@@ -86,16 +86,21 @@ services:
       - .env
       - ./fiscalizacao-service/.env
     ports:
-      - "8003:8000"
+      - "8004:8000"
     restart: unless-stopped
 
-  # consumidor-irregularidade:
-  #   build: ./consumidor-irregularidade
-  #   container_name: consumidor-irregularidade
-  #   env_file:
-  #     - .env
-  #     - ./consumidor-irregularidades/.env
-  #   restart: unless-stopped
+  notificacao-service:
+    build: ./notificacao-service
+    container_name: notificacao-service
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+        restart: true
+    env_file:
+      - .env
+    ports:
+    - "8005:8000"
+    restart: unless-stopped
 
 volumes:
   rabbitmq-data:

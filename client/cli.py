@@ -170,10 +170,13 @@ class EstacionamentoShell(cmd.Cmd):
             print("---------------------------\n")
 
             if status == 'IRREGULAR':
-                chamar_guarda = input("Veículo irregular. Deseja notificar a guarda? (s/n): ").lower()
-                if chamar_guarda == 's':
-                    # Aqui publicamos para o tópico de notificação
-                    notification_payload = {"placa": placa, "message": "Veículo em situação irregular."}
+                chamar_guarda = input("Veículo irregular. Deseja notificar a guarda? (S/N): ").lower()
+                if chamar_guarda.upper == 'S':
+                    notification_payload = {
+                        "placa": placa,
+                        "localizacao": "Rua Principal, 123"
+                    }
+                    # Envia a confirmação para o serviço de notificação
                     self._publish_simple_message('queue_notificacao', notification_payload)
 
     def do_exit(self, arg):
