@@ -8,6 +8,10 @@ from dotenv import load_dotenv
 load_dotenv()
 env = os.environ
 
+TOPIC_EXCHANGE = 'amq.topic'
+ROUTING_KEY_CREDITOS = 'credito.confirmacao.#'
+QUEUE_NAME = 'queue_credito'
+
 # Configuração do RabbitMQ
 credentials = pika.PlainCredentials(env["RABBITMQ_USER"], env["RABBITMQ_PASS"])
 connection = pika.BlockingConnection(
@@ -15,8 +19,13 @@ connection = pika.BlockingConnection(
 )
 channel = connection.channel()
 
-for queue in ["queue_credito", "credit_list", "credit_response"]:
-    channel.queue_declare(queue=queue, durable=True)
+
+channel.queue_declare(queue=QUEUE_NAME, durable=True)
+channel.queue_bind(
+    exchange=TOPIC_EXCHANGE,
+    queue=QUEUE_NAME,
+    routing_key=ROUTING_KEY_CREDITOS
+)
 
 # Função de processamento de compra de crédito
 def process_purchase(data):
@@ -91,7 +100,6 @@ def on_list(ch, method, props, body):
 
 # Inicia o consumo das filas
 def start_consuming():
-    channel.basic_consume(queue="queue_credito", on_message_callback=on_purchase)
-    channel.basic_consume(queue="credit_list", on_message_callback=on_list)
+    channel.basic_consume(queue=QUEUE_NAME, on_message_callback=on_purchase)
     print("🪙 Credit Service rodando. Aguardando mensagens...")
     channel.start_consuming()

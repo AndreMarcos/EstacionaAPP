@@ -9,6 +9,9 @@ RABBITMQ_HOST = os.getenv("RABBITMQ_HOST")
 RABBITMQ_USER = os.getenv("RABBITMQ_USER")
 RABBITMQ_PASS = os.getenv("RABBITMQ_PASS")
 
+TOPIC_EXCHANGE = 'amq.topic'
+ROUTING_KEY_NOTIFICACAO = 'fiscalizacao.multa.#'
+
 # Conexão com RabbitMQ
 credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
 connection  = pika.BlockingConnection(
@@ -17,12 +20,12 @@ connection  = pika.BlockingConnection(
 channel = connection.channel()
 
 # Fila para receber a CONFIRMAÇÃO do agente
-QUEUE_NAME = 'queue_notificacao'
-channel.queue_declare(queue=QUEUE_NAME, durable=True)
+result = channel.queue_declare(queue='', exclusive=True)
+queue_name = result.method.queue
 channel.queue_bind(
-    exchange='amq.topic',
-    queue=QUEUE_NAME,
-    routing_key=QUEUE_NAME
+    exchange=TOPIC_EXCHANGE,
+    queue=queue_name,
+    routing_key=ROUTING_KEY_NOTIFICACAO
 )
 
 print('[*] Aguardando CONFIRMAÇÃO de multa do agente. Para sair, pressione CTRL+C')
@@ -41,6 +44,6 @@ def on_confirmation_received(ch, method, properties, body):
     
     ch.basic_ack(delivery_tag=method.delivery_tag)
 
-channel.basic_consume(queue=QUEUE_NAME, on_message_callback=on_confirmation_received)
-print("🚨 Serviço de Notificação rodando. Aguardando mensagens em queue_notificacao...")
+channel.basic_consume(queue=queue_name, on_message_callback=on_confirmation_received)
+print("🚨 Serviço de Notificação rodando. Aguardando mensagens...")
 channel.start_consuming()

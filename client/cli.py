@@ -104,23 +104,6 @@ class EstacionamentoShell(cmd.Cmd):
         self.mqtt_client.client.publish(topic_name, json.dumps(payload))
         print(f" [✔] Mensagem enviada com sucesso para o tópico '{topic_name}'.")
 
-    def do_cadastrar_veiculo(self, arg):
-        """Cadastra um novo veículo para o usuário fixo.
-        Uso: cadastrar_veiculo <placa> <modelo> <cor>
-        Exemplo: cadastrar_veiculo BRA-2E19 Fusca Azul"""
-        try:
-            placa, modelo, cor = arg.split()
-            payload = {
-                "user_id": USER_ID_FIXO,
-                "placa": placa.upper(),
-                "modelo": modelo,
-                "cor": cor
-            }
-            # No MQTT, o nome do tópico pode ser o mesmo da fila AMQP
-            self._publish_simple_message('vehicle_register', payload)
-        except ValueError:
-            print("Erro: Uso incorreto. Exemplo: cadastrar_veiculo BRA-2E19 Fusca Azul")
-
     def do_adicionar_credito(self, arg):
         """Inicia o processo de adicionar crédito para um veículo.
         Uso: adicionar_credito <placa> <valor>
@@ -133,7 +116,7 @@ class EstacionamentoShell(cmd.Cmd):
                 "zona" : zona,
                 "duracao_horas": int(valor)
             }
-            response = self.mqtt_client.call('queue_pagamento', payload)
+            response = self.mqtt_client.call('credito/compra', payload)
             print("\n--- Resultado da Consulta ---")
             if response.get("error"):
                 print(f"ERRO: {response['error']}")
@@ -156,7 +139,7 @@ class EstacionamentoShell(cmd.Cmd):
             return
 
         payload = {"placa": placa}
-        response = self.mqtt_client.call('queue_fiscalizacao', payload)
+        response = self.mqtt_client.call('fiscalizacao/consulta', payload)
 
         print("\n--- Resultado da Consulta ---")
         if response.get("error"):
@@ -177,7 +160,7 @@ class EstacionamentoShell(cmd.Cmd):
                         "localizacao": "Rua Principal, 123"
                     }
                     # Envia a confirmação para o serviço de notificação
-                    self._publish_simple_message('queue_notificacao', notification_payload)
+                    self._publish_simple_message('fiscalizacao/multa', notification_payload)
 
     def do_exit(self, arg):
         """Sai do programa."""
