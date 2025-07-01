@@ -33,20 +33,6 @@ services:
       - "8000:8000"
     restart: unless-stopped
 
-  veiculos-service:
-    build: ./veiculos-service
-    container_name: veiculos-service
-    depends_on:
-      rabbitmq:
-        condition: service_healthy
-        restart: true
-    env_file:
-      - .env
-      - ./veiculos-service/.env
-    ports:
-      - "8001:8000"
-    restart: unless-stopped
-
   pagamento-service:
     build: ./pagamento-service
     container_name: pagamento-service
