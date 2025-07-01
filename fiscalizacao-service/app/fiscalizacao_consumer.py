@@ -20,6 +20,11 @@ channel = connection.channel()
 
 # Declaração de fila
 channel.queue_declare(queue="queue_fiscalizacao", durable=True)
+channel.queue_bind(
+    exchange='amq.topic',
+    queue='queue_fiscalizacao',
+    routing_key='queue_fiscalizacao'
+)
 
 # Lógica de negócio: verifica créditos válidos e irregularidades
 def check_plate(req):
@@ -32,33 +37,37 @@ def check_plate(req):
         .gte("expira_em", now)\
         .execute().data
 
-    irregs = supabase.table("irregularidades")\
-        .select("*")\
-        .eq("placa", placa)\
-        .execute().data
-
-    if irregs:
-        return {"regular": False, "motivo": irregs[0]["motivo"]}
     if not credits:
-        return {"regular": False, "motivo": "sem crédito"}
-    return {"regular": True}
+        print("🔍 Irregular")
+        return {"status": False, "mensagem": "No credit"}
+    
+    print("🔍 Regular")
+    return {"status": True}
 
 # Callback de consulta de placa
 def on_query(ch, method, properties, body):
-    req     = json.loads(body)
-    corr_id = properties.correlation_id or req.get("correlation_id")
-    print(f"Consultando placa={req.get('placa')}")
+    try:
+        req         = json.loads(body)
+        reply_topic = req.get('reply_to').replace('/', '.')
+        corr_id     = properties.correlation_id or req.get("correlation_id")
+        
+        print(f"🔍 Consultando placa={req.get('placa')}")
 
-    result = check_plate(req)
-
-    # Responde na fila informada em reply_to
-    channel.basic_publish(
-        exchange='',
-        routing_key=req.get("reply_to"),
-        properties=pika.BasicProperties(correlation_id=corr_id),
-        body=json.dumps(result)
-    )
-    ch.basic_ack(delivery_tag=method.delivery_tag)
+        result = check_plate(req)
+        result['correlation_id'] = corr_id
+        
+        print(f" [x] Respondendo na fila '{reply_topic}'")
+        channel.basic_publish(
+            exchange='amq.topic',
+            routing_key=reply_topic,
+            properties=pika.BasicProperties(correlation_id=corr_id),
+            body=json.dumps(result)
+        )
+        print(f" [✔] Resposta enviada para o tópico '{reply_topic}'")
+    except Exception as e:
+        print(f"🔍 ERROR: {str(e)}")
+    finally:    
+        ch.basic_ack(delivery_tag=method.delivery_tag)
 
 # Loop de consumo
 channel.basic_consume(queue="queue_fiscalizacao", on_message_callback=on_query)

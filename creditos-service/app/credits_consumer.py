@@ -17,7 +17,7 @@ connection = pika.BlockingConnection(
 channel = connection.channel()
 
 # Declaração das filas
-for queue in ["purchase_credit", "credit_list", "credit_response"]:
+for queue in ["queue_credito", "credit_list", "credit_response"]:
     channel.queue_declare(queue=queue, durable=True)
 
 
@@ -60,6 +60,7 @@ def process_purchase(data):
             "credit_id": entry["id"],
         }
     except Exception as e:
+        print(f"🪙 ERROR: {str(e)}")
         return {"success": False, "error": str(e)}
 
 
@@ -79,7 +80,7 @@ def process_list(data):
 def on_purchase(ch, method, props, body):
     msg = json.loads(body)
     corr_id = msg.get("correlation_id")
-    print("Processando compra de crédito:", msg)
+    print("🪙 Processando compra de crédito:", msg)
 
     response = process_purchase(msg)
     response["correlation_id"] = corr_id
@@ -91,7 +92,7 @@ def on_purchase(ch, method, props, body):
 def on_list(ch, method, props, body):
     msg = json.loads(body)
     corr_id = msg.get("correlation_id")
-    print("Listando créditos para placa:", msg.get("placa"))
+    print("🪙 Listando créditos para placa:", msg.get("placa"))
 
     response = process_list(msg)
     response["correlation_id"] = corr_id
@@ -101,7 +102,7 @@ def on_list(ch, method, props, body):
 
 # Inicia o consumo das filas
 def start_consuming():
-    channel.basic_consume(queue="purchase_credit", on_message_callback=on_purchase)
+    channel.basic_consume(queue="queue_credito", on_message_callback=on_purchase)
     channel.basic_consume(queue="credit_list", on_message_callback=on_list)
     print("🪙 Credit Service rodando. Aguardando mensagens...")
     channel.start_consuming()

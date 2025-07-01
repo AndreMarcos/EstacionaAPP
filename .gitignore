@@ -1,1 +1,14 @@
 /app-motorista
+/client
+
+.vscode
+.idea/
+
+.env
+.env.*
+*.env
+
+rabbitmq-data/mnesia
+rabbitmq-data/.erlang.cookie
+
+.DS_Store
