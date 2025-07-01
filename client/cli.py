@@ -171,7 +171,7 @@ class EstacionamentoShell(cmd.Cmd):
 
             if status == 'IRREGULAR':
                 chamar_guarda = input("Veículo irregular. Deseja notificar a guarda? (S/N): ").lower()
-                if chamar_guarda.upper == 'S':
+                if chamar_guarda.upper() == 'S':
                     notification_payload = {
                         "placa": placa,
                         "localizacao": "Rua Principal, 123"
