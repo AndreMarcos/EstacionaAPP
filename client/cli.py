@@ -121,7 +121,7 @@ class EstacionamentoShell(cmd.Cmd):
             if response.get("error"):
                 print(f"ERRO: {response['error']}")
             else:
-                success = response.get('success') or 'desconhecido'.upper()
+                success = str(response.get('success', 'desconhecido')).upper()
                 order_id = response.get('order_id', 'desconhecido').upper()
                 mensagem = response.get('message', 'Sem mensagem adicional.')
                 print(f"Sucesso: {success}")

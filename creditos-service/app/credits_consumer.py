@@ -85,7 +85,7 @@ def on_purchase(ch, method, props, body):
     if reply_to:
         response_payload["correlation_id"] = corr_id
         print(f"🪙 Enviando resposta final para a fila '{reply_to}'")
-        channel.basic_publish(
+        ch.basic_publish(
             exchange=TOPIC_EXCHANGE,
             routing_key=reply_to,
             properties=pika.BasicProperties(correlation_id=corr_id),
