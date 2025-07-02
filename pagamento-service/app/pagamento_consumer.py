@@ -10,6 +10,11 @@ RABBITMQ_HOST = os.getenv("RABBITMQ_HOST")
 RABBITMQ_USER = os.getenv("RABBITMQ_USER")
 RABBITMQ_PASS = os.getenv("RABBITMQ_PASS")
 
+TOPIC_EXCHANGE = 'amq.topic'
+ROUTING_KEY_PAGAMENTO = 'credito.compra.#'
+ROUTING_KEY_SUCCESS = 'credito.confirmacao.sucesso'
+QUEUE_NAME = 'queue_pagamento'
+
 # Conexão com RabbitMQ
 credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
 connection  = pika.BlockingConnection(
@@ -18,20 +23,18 @@ connection  = pika.BlockingConnection(
 channel = connection.channel()
 
 # Declaração de filas
-channel.queue_declare(queue="queue_pagamento",     durable=True)
-channel.queue_declare(queue="pagamento_response",  durable=True)
-channel.queue_declare(queue="queue_credito",       durable=True)
+channel.queue_declare(queue=QUEUE_NAME,     durable=True)
 
 channel.queue_bind(
-    exchange='amq.topic',
-    queue='queue_pagamento',
-    routing_key='queue_pagamento'
+    exchange=TOPIC_EXCHANGE,
+    queue=QUEUE_NAME,
+    routing_key=ROUTING_KEY_PAGAMENTO
 )
 
 # Publica eventos
 def send_event(routing_key, payload, correlation_id):
     channel.basic_publish(
-        exchange='',
+        exchange=TOPIC_EXCHANGE,
         routing_key=routing_key,
         properties=pika.BasicProperties(delivery_mode=2, correlation_id=correlation_id),
         body=json.dumps(payload)
@@ -69,7 +72,7 @@ def on_payment_request(ch, method, properties, body):
         # 2. Responde ao cliente com o status
         response_event = { "order_id": order_id_gerado, "status": "Success", "correlation_id": corr_id }
         channel.basic_publish(
-            exchange='amq.topic',
+            exchange=TOPIC_EXCHANGE,
             routing_key=reply_topic,
             properties=pika.BasicProperties(correlation_id=corr_id),
             body=json.dumps(response_event)
@@ -83,7 +86,7 @@ def on_payment_request(ch, method, properties, body):
             "duracao_horas": req.get("duracao_horas"),
             "correlation_id": corr_id
         }
-        send_event("queue_credito", credit_event, corr_id)
+        send_event(ROUTING_KEY_SUCCESS, credit_event, corr_id)
 
     except Exception as e:
         print(f"🛠️ ERRO no processamento de pagamento: {e}")
@@ -92,6 +95,6 @@ def on_payment_request(ch, method, properties, body):
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
 # Loop de consumo
-channel.basic_consume(queue="queue_pagamento", on_message_callback=on_payment_request)
+channel.basic_consume(queue=QUEUE_NAME, on_message_callback=on_payment_request)
 print("🛠️ Serviço de Pagamento rodando. Aguardando mensagens...")
 channel.start_consuming()

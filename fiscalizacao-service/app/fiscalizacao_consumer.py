@@ -11,6 +11,10 @@ RABBITMQ_HOST = os.getenv("RABBITMQ_HOST")
 RABBITMQ_USER = os.getenv("RABBITMQ_USER")
 RABBITMQ_PASS = os.getenv("RABBITMQ_PASS")
 
+TOPIC_EXCHANGE = 'amq.topic'
+ROUTING_KEY_FISCALIZACAO = 'fiscalizacao.consulta.#'
+QUEUE_NAME = 'queue_fiscalizacao'
+
 # Conexão com RabbitMQ
 credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
 connection  = pika.BlockingConnection(
@@ -19,11 +23,11 @@ connection  = pika.BlockingConnection(
 channel = connection.channel()
 
 # Declaração da fila de fiscalização
-channel.queue_declare(queue="queue_fiscalizacao", durable=True)
+channel.queue_declare(queue=QUEUE_NAME, durable=True)
 channel.queue_bind(
-    exchange='amq.topic',
-    queue='queue_fiscalizacao',
-    routing_key='queue_fiscalizacao'
+    exchange=TOPIC_EXCHANGE,
+    queue=QUEUE_NAME,
+    routing_key=ROUTING_KEY_FISCALIZACAO
 )
 
 # Lógica de negócio: verifica créditos válidos
@@ -81,5 +85,5 @@ def on_query(ch, method, properties, body):
 
 # Loop de consumo
 channel.basic_consume(queue="queue_fiscalizacao", on_message_callback=on_query)
-print("🔍 Serviço de Fiscalização rodando. Aguardando mensagens em queue_fiscalizacao...")
+print("🔍 Serviço de Fiscalização rodando. Aguardando mensagens...")
 channel.start_consuming()
