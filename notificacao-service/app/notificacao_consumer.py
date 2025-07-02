@@ -44,6 +44,7 @@ def on_confirmation_received(ch, method, properties, body):
     
     ch.basic_ack(delivery_tag=method.delivery_tag)
 
-channel.basic_consume(queue=queue_name, on_message_callback=on_confirmation_received)
-print("🚨 Serviço de Notificação rodando. Aguardando mensagens...")
-channel.start_consuming()
+def start_consuming():
+    channel.basic_consume(queue=queue_name, on_message_callback=on_confirmation_received)
+    print("🚨 Serviço de Notificação rodando. Aguardando mensagens...")
+    channel.start_consuming()

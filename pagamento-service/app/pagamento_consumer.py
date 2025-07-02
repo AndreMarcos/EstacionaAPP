@@ -43,7 +43,7 @@ def send_event(routing_key, payload, correlation_id):
 # Callback para pedidos de pagamento
 def on_payment_request(ch, method, properties, body):
     req         = json.loads(body)
-    reply_topic = req.get('reply_to').replace('/', '.')
+    reply_to    = req.get('reply_to').replace('/', '.')
     corr_id     = req.get("correlation_id")
     placa       = req.get("placa").replace('-', '')
     
@@ -59,42 +59,38 @@ def on_payment_request(ch, method, properties, body):
             "valor": horas * valor_por_hora,
         }
         
-        # --- LÓGICA PRINCIPAL ---
-        # 1. Insere o pagamento e recupera o registro inserido
         res = supabase.table("pagamentos").insert(pagamento_record).execute()
-        
-        # O registro recém-criado está em res.data[0]
         pagamento_criado = res.data[0]
         order_id_gerado = pagamento_criado['order_id']
         
         print(f"🛠️ Pagamento registrado com sucesso. Order ID: {order_id_gerado}")
         
-        # 2. Responde ao cliente com o status
-        response_event = { "order_id": order_id_gerado, "status": "Success", "correlation_id": corr_id }
-        channel.basic_publish(
-            exchange=TOPIC_EXCHANGE,
-            routing_key=reply_topic,
-            properties=pika.BasicProperties(correlation_id=corr_id),
-            body=json.dumps(response_event)
-        )
-        
-        # 3. Dispara evento para o Serviço de Crédito com o order_id gerado
         credit_event = {
-            "order_id": order_id_gerado, # <-- USA O ID GERADO PELO BANCO
+            "order_id": order_id_gerado,
             "placa": placa,
             "zona":  req.get("zona"),
             "duracao_horas": req.get("duracao_horas"),
+            "reply_to": reply_to,
             "correlation_id": corr_id
         }
         send_event(ROUTING_KEY_SUCCESS, credit_event, corr_id)
 
     except Exception as e:
         print(f"🛠️ ERRO no processamento de pagamento: {e}")
+        # --- MUDANÇA 3: Adicionado bloco para responder ao cliente em caso de erro ---
+        if reply_to:
+            error_response = {"success": False, "error": f"Falha no serviço de pagamento: {e}"}
+            channel.basic_publish(
+                exchange=TOPIC_EXCHANGE,
+                routing_key=reply_to,
+                properties=pika.BasicProperties(correlation_id=corr_id),
+                body=json.dumps(error_response)
+            )
 
     finally:
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
-# Loop de consumo
-channel.basic_consume(queue=QUEUE_NAME, on_message_callback=on_payment_request)
-print("🛠️ Serviço de Pagamento rodando. Aguardando mensagens...")
-channel.start_consuming()
+def start_consuming():
+    channel.basic_consume(queue=QUEUE_NAME, on_message_callback=on_payment_request)
+    print("🛠️ Serviço de Pagamento rodando. Aguardando mensagens...")
+    channel.start_consuming()
