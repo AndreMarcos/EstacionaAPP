@@ -1,50 +1,70 @@
+from dotenv import load_dotenv
+load_dotenv()  # carrega SUPABASE_URL/SUPABASE_KEY e RabbitMQ antes de qualquer import
+
 import os
 import json
 import pika
-from dotenv import load_dotenv
 
-load_dotenv()
-
+# --- Configurações RabbitMQ ---
 RABBITMQ_HOST = os.getenv("RABBITMQ_HOST")
 RABBITMQ_USER = os.getenv("RABBITMQ_USER")
 RABBITMQ_PASS = os.getenv("RABBITMQ_PASS")
 
-TOPIC_EXCHANGE = 'amq.topic'
-ROUTING_KEY_NOTIFICACAO = 'fiscalizacao.multa.#'
+# Nome da fila em que o CLI publica a confirmação de multa
+QUEUE_NAME = 'fiscalizacao_multa'
 
-# Conexão com RabbitMQ
+# Conexão e canal
 credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
-connection  = pika.BlockingConnection(
+conn = pika.BlockingConnection(
     pika.ConnectionParameters(host=RABBITMQ_HOST, credentials=credentials)
 )
-channel = connection.channel()
+channel = conn.channel()
 
-# Fila para receber a CONFIRMAÇÃO do agente
-result = channel.queue_declare(queue='', exclusive=True)
-queue_name = result.method.queue
-channel.queue_bind(
-    exchange=TOPIC_EXCHANGE,
-    queue=queue_name,
-    routing_key=ROUTING_KEY_NOTIFICACAO
-)
+# Declara a fila — durável para não perder mensagens em reinício
+channel.queue_declare(queue=QUEUE_NAME, durable=True)
 
-print('[*] Aguardando CONFIRMAÇÃO de multa do agente. Para sair, pressione CTRL+C')
 
-def on_confirmation_received(ch, method, properties, body):
-    """Callback para processar a confirmação de multa vinda do agente."""
-    data = json.loads(body)
-    placa = data.get('placa')
-    localizacao = data.get('localizacao', 'N/A')
+def on_notification(ch, method, props, body):
+    """
+    Callback que processa a confirmação de multa enviada pelo agente.
+    Exemplo de payload:
+      {
+        "placa": "BRA-2E19",
+        "localizacao": "Rua Principal, 123"
+      }
+    """
+    try:
+        data = json.loads(body)
+        placa = data.get('placa', 'N/A')
+        local = data.get('localizacao', 'N/A')
 
-    print(f"\n------ 🚨 CONFIRMAÇÃO DE MULTA RECEBIDA 🚨 ------")
-    print(f"  [>] Placa: {placa}")
-    print(f"  [>] Localização: {localizacao}")
-    print(f"  [>] Acionando Guarda Municipal para emissão de multa...")
-    print(f"--------------------------------------------------")
-    
-    ch.basic_ack(delivery_tag=method.delivery_tag)
+        print("\n------ 🚨 MULTA CONFIRMADA 🚨 ------")
+        print(f"  Placa:      {placa}")
+        print(f"  Localização:{local}")
+        print("  Ação:       Acionando Guarda Municipal para emitir multa...")
+        print("------------------------------------\n")
+
+        # Aqui você poderia chamar outra API / gravar em banco / etc.
+    except Exception as e:
+        print(f"[ERROR] falha ao processar notificação de multa: {e}")
+    finally:
+        # Sempre confirme para remover da fila
+        ch.basic_ack(delivery_tag=method.delivery_tag)
+
 
 def start_consuming():
-    channel.basic_consume(queue=queue_name, on_message_callback=on_confirmation_received)
-    print("🚨 Serviço de Notificação rodando. Aguardando mensagens...")
+    print(f"🚨 Serviço de Notificação rodando — consumindo '{QUEUE_NAME}'...")
+    channel.basic_consume(
+        queue=QUEUE_NAME,
+        on_message_callback=on_notification
+    )
     channel.start_consuming()
+
+
+if __name__ == '__main__':
+    try:
+        start_consuming()
+    except KeyboardInterrupt:
+        print("\n🔌 Interrompido pelo usuário, fechando conexão...")
+        channel.close()
+        conn.close()

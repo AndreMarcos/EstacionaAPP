@@ -1,182 +1,178 @@
-# Arquivo: client_mqtt.py
 
-import paho.mqtt.client as mqtt
-import json
+import pika
 import uuid
+import json
 import cmd
 import threading
 import time
 
 # --- Configurações ---
-MQTT_BROKER_HOST = 'localhost'
-MQTT_BROKER_PORT = 1883 # Porta padrão do MQTT
+RABBIT_HOST = '198.27.114.55'
+RABBIT_PORT = 5672
+RABBIT_USER = 'guest'
+RABBIT_PASS = 'guest'
 USER_ID_FIXO = "a1b2c3d4-e5f6-7890-1234-567890abcdef"
-RABBIT_USER = "estaciona_user"
-RABBIT_PASS = "estaciona_user"
 
-class MqttRpcClient:
+class RabbitRpcClient:
     """
-    Classe que encapsula a lógica de RPC (Requisição-Resposta) sobre o protocolo MQTT.
+    Cliente RPC sobre RabbitMQ usando pika.BlockingConnection.
     """
     def __init__(self):
-        self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-        self.client.username_pw_set(RABBIT_USER, RABBIT_PASS)
-        self.client.on_connect = self.on_connect
-        self.client.on_message = self.on_message
+        credentials = pika.PlainCredentials(RABBIT_USER, RABBIT_PASS)
+        params = pika.ConnectionParameters(host=RABBIT_HOST,
+                                           port=RABBIT_PORT,
+                                           credentials=credentials)
+        self.connection = pika.BlockingConnection(params)
+        self.channel = self.connection.channel()
 
-        # Dicionários para rastrear as respostas pendentes
-        self.response_payloads = {}
-        self.response_events = {}
+        # Declara fila exclusiva para resposta e obtém seu nome
+        result = self.channel.queue_declare(queue='', exclusive=True)
+        self.callback_queue = result.method.queue
 
-        # Tópico de resposta único para este cliente
-        self.response_topic = f"response/client/{uuid.uuid4()}"
+        # Armazena estados de resposta
+        self.response = None
+        self.corr_id = None
+        self.lock = threading.Lock()
+        self.event = threading.Event()
 
-        self.client.connect(MQTT_BROKER_HOST, MQTT_BROKER_PORT, 60)
-        self.client.loop_start()  # Inicia a thread de rede em background
+        # Começa a consumir da fila de respostas
+        self.channel.basic_consume(
+            queue=self.callback_queue,
+            on_message_callback=self.on_response,
+            auto_ack=True
+        )
 
-    def on_connect(self, client, userdata, flags, rc, properties=None):
-        if rc == 0:
-            print("[INFO] Conectado ao Broker MQTT com sucesso!")
-            # Inscreve-se no tópico de resposta assim que a conexão é estabelecida
-            client.subscribe(self.response_topic)
-            print(f"[INFO] Escutando por respostas no tópico: {self.response_topic}")
-        else:
-            print(f"[ERRO] Falha ao conectar, código de retorno: {rc}\n")
+        # Thread para loop de consumo
+        self.consume_thread = threading.Thread(target=self._start_consuming, daemon=True)
+        self.consume_thread.start()
 
-    def on_message(self, client, userdata, msg):
-        # Callback chamado para TODAS as mensagens recebidas
-        try:
-            payload = json.loads(msg.payload)
-            corr_id = payload.get('correlation_id')
+    def _start_consuming(self):
+        self.channel.start_consuming()
 
-            # Se a mensagem tem um correlation_id que estamos esperando...
-            if corr_id in self.response_events:
-                self.response_payloads[corr_id] = payload
-                # ...sinaliza o evento para "acordar" a thread que fez a chamada
-                self.response_events[corr_id].set()
-        except Exception as e:
-            print(f"[ERRO] Falha ao processar a mensagem: {str(e)}")
+    def on_response(self, ch, method, props, body):
+        if self.corr_id == props.correlation_id:
+            with self.lock:
+                self.response = json.loads(body)
+                self.event.set()
 
-    def call(self, target_topic, payload):
-        corr_id = str(uuid.uuid4())
-        
-        # Prepara o evento de sincronização para esta chamada específica
-        event = threading.Event()
-        self.response_events[corr_id] = event
+    def call(self, queue_name, payload, timeout=10):
+        """
+        Envia payload (dict) para queue_name e bloqueia até receber a resposta.
+        """
+        self.response = None
+        self.corr_id = str(uuid.uuid4())
+        self.event.clear()
 
-        # Adiciona os metadados de RPC ao payload
-        payload['correlation_id'] = corr_id
-        payload['reply_to'] = self.response_topic
+        # inclui metadados
+        payload['correlation_id'] = self.corr_id
+        payload['reply_to'] = self.callback_queue
 
-        # Publica a mensagem de requisição
-        self.client.publish(target_topic, json.dumps(payload))
-        print(f" [->] Requisição (corr_id={corr_id[:8]}...) enviada para o tópico '{target_topic}'...")
+        self.channel.basic_publish(
+            exchange='',
+            routing_key=queue_name,
+            properties=pika.BasicProperties(
+                reply_to=self.callback_queue,
+                correlation_id=self.corr_id,
+                content_type='application/json'
+            ),
+            body=json.dumps(payload)
+        )
+        print(f" [->] Requisição (corr_id={self.corr_id[:8]}...) enviada para '{queue_name}'")
 
-        # Espera pelo evento ser sinalizado (com timeout)
-        event_was_set = event.wait(timeout=10)
+        # aguarda resposta
+        if not self.event.wait(timeout):
+            return {"error": "Timeout: nenhuma resposta recebida."}
 
-        # Limpeza
-        del self.response_events[corr_id]
+        with self.lock:
+            return self.response
 
-        if not event_was_set:
-            return {"error": "Timeout: Nenhuma resposta recebida do serviço."}
-        
-        return self.response_payloads.pop(corr_id)
-
-    def disconnect(self):
-        self.client.loop_stop()
-        self.client.disconnect()
+    def close(self):
+        self.channel.stop_consuming()
+        self.connection.close()
 
 
 class EstacionamentoShell(cmd.Cmd):
-    """Shell interativo para testar o sistema de estacionamento via MQTT."""
-    intro = 'Bem-vindo ao cliente MQTT do EstacionaApp. Digite help ou ? para listar os comandos.\n'
+    """Shell interativo para testar o sistema de estacionamento via RabbitMQ."""
+    intro = 'Bem-vindo ao cliente RabbitMQ do EstacionaApp. help ou ? para comandos.\n'
     prompt = '(Estacionamento)> '
 
     def __init__(self):
         super().__init__()
-        self.mqtt_client = MqttRpcClient()
-        # Damos um pequeno tempo para a conexão ser estabelecida
-        time.sleep(1)
+        self.rpc = RabbitRpcClient()
+        # aguarda a thread de consumo iniciar
+        time.sleep(0.5)
 
-    def _publish_simple_message(self, topic_name, payload):
-        """Função auxiliar para enviar mensagens "fire-and-forget"."""
-        self.mqtt_client.client.publish(topic_name, json.dumps(payload))
-        print(f" [✔] Mensagem enviada com sucesso para o tópico '{topic_name}'.")
+    def _publish_simple(self, queue, payload):
+        """Envio fire-and-forget."""
+        self.rpc.channel.basic_publish(
+            exchange='',
+            routing_key=queue,
+            body=json.dumps(payload),
+            properties=pika.BasicProperties(content_type='application/json')
+        )
+        print(f" [✔] Mensagem enviada para '{queue}'.")
 
     def do_adicionar_credito(self, arg):
-        """Inicia o processo de adicionar crédito para um veículo.
-        Uso: adicionar_credito <placa> <valor>
-        Exemplo: adicionar_credito BRA-2E19 5.50"""
+        """
+        adicionar_credito <placa> <zona> <duracao_horas>
+        Ex: adicionar_credito BRA-2E19 A 5
+        """
         try:
             placa, zona, valor = arg.split()
             payload = {
                 "user_id": USER_ID_FIXO,
                 "placa": placa.upper(),
-                "zona" : zona,
+                "zona": zona,
                 "duracao_horas": int(valor)
             }
-            response = self.mqtt_client.call('credito/compra', payload)
+            resp = self.rpc.call('credito_compra', payload)
             print("\n--- Resultado da Consulta ---")
-            if response.get("error"):
-                print(f"ERRO: {response['error']}")
+            if 'error' in resp:
+                print(f"ERRO: {resp['error']}")
             else:
-                success = str(response.get('success', 'desconhecido')).upper()
-                order_id = response.get('order_id', 'desconhecido').upper()
-                mensagem = response.get('message', 'Sem mensagem adicional.')
-                print(f"Sucesso: {success}")
-                print(f"ID do Pedido: {order_id}")
-                print(f"Mensagem: {mensagem}")
-                print("---------------------------\n")
-        except (ValueError, IndexError):
+                print(f"Sucesso: {str(resp.get('success')).upper()}")
+                print(f"ID do Pedido: {str(resp.get('order_id')).upper()}")
+                print(f"Mensagem: {resp.get('message')}")
+            print("---------------------------\n")
+        except ValueError:
             print("Erro: Uso incorreto. Exemplo: adicionar_credito BRA-2E19 A 5")
 
     def do_consultar_placa(self, arg):
-        """Consulta a situação de uma placa. (Função do Fiscal)
-        Uso: consultar_placa <placa>
-        Exemplo: consultar_placa BRA-2E19"""
+        """
+        consultar_placa <placa>
+        Ex: consultar_placa BRA-2E19
+        """
         placa = arg.strip().upper()
         if not placa:
-            print("Erro: Por favor, informe uma placa.")
+            print("Erro: informe uma placa.")
             return
 
-        payload = {"placa": placa}
-        response = self.mqtt_client.call('fiscalizacao/consulta', payload)
-
+        resp = self.rpc.call('fiscalizacao_consulta', {"placa": placa})
         print("\n--- Resultado da Consulta ---")
-        if response.get("error"):
-            print(f"ERRO: {response['error']}")
+        if 'error' in resp:
+            print(f"ERRO: {resp['error']}")
         else:
-            status = 'REGULAR' if response.get('status', False) else 'IRREGULAR'            
-            mensagem = response.get('mensagem', 'Sem mensagem adicional.')
+            status = 'REGULAR' if resp.get('status') else 'IRREGULAR'
             print(f"Placa: {placa}")
             print(f"Status: {status}")
-            print(f"Mensagem: {mensagem}")
-            print("---------------------------\n")
-
+            print(f"Mensagem: {resp.get('mensagem')}")
             if status == 'IRREGULAR':
-                chamar_guarda = input("Veículo irregular. Deseja notificar a guarda? (S/N): ").lower()
-                if chamar_guarda.upper() == 'S':
-                    notification_payload = {
+                escolha = input("Notificar guarda? (S/N): ").strip().upper()
+                if escolha == 'S':
+                    self._publish_simple('fiscalizacao_multa', {
                         "placa": placa,
                         "localizacao": "Rua Principal, 123"
-                    }
-                    # Envia a confirmação para o serviço de notificação
-                    self._publish_simple_message('fiscalizacao/multa', notification_payload)
+                    })
+        print("---------------------------\n")
 
     def do_exit(self, arg):
-        """Sai do programa."""
-        print('Encerrando conexão e saindo...')
-        self.mqtt_client.disconnect()
+        """Encerra o cliente e sai."""
+        print("Encerrando conexão...")
+        self.rpc.close()
         return True
-    
-    def do_quit(self, arg):
-        """Sai do programa."""
-        return self.do_exit(arg)
 
-    def do_EOF(self, arg):
-        """Sai do programa com Ctrl+D."""
-        return self.do_exit(arg)
+    do_quit = do_exit
+    do_EOF = do_exit
 
 
 if __name__ == '__main__':
