@@ -83,7 +83,7 @@ def on_query(ch, method, properties, body):
     finally:    
         ch.basic_ack(delivery_tag=method.delivery_tag)
 
-# Loop de consumo
-channel.basic_consume(queue="queue_fiscalizacao", on_message_callback=on_query)
-print("🔍 Serviço de Fiscalização rodando. Aguardando mensagens...")
-channel.start_consuming()
+def start_consuming():
+    channel.basic_consume(queue="queue_fiscalizacao", on_message_callback=on_query)
+    print("🔍 Serviço de Fiscalização rodando. Aguardando mensagens...")
+    channel.start_consuming()
